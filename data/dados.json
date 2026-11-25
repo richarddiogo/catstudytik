@@ -1,0 +1,69 @@
+{
+  "fase": "dados",
+  "cards": [
+    {
+      "id": "dados-0",
+      "tipo": "ponte",
+      "titulo": "Do SELECT ao GET",
+      "texto": "No Athena, você filtra linhas com WHERE. Em uma API, o cliente pede o filtro na URL e o backend decide como buscar os dados.",
+      "exemplos": [
+        {
+          "rotulo": "ATHENA",
+          "conteudo": "SELECT * FROM gatos WHERE cor = 'preto';"
+        },
+        {
+          "rotulo": "HTTP",
+          "conteudo": "GET /gatos?cor=preto"
+        }
+      ]
+    },
+    {
+      "id": "dados-1",
+      "tipo": "armadilha",
+      "titulo": "O contrato começa na resposta",
+      "texto": "No Athena você controla a consulta. No frontend, você depende dos campos e tipos que a API promete. Se id virar número sem que o cliente saiba, o card pode deixar de abrir.",
+      "exemplos": [
+        {
+          "rotulo": "CONTRATO",
+          "conteudo": "{\"id\": \"dados-0\", \"tipo\": \"ponte\", \"titulo\": \"Do SELECT ao GET\"}"
+        },
+        {
+          "rotulo": "LIMITE",
+          "conteudo": "Trate mudanças incompatíveis como uma nova versão do contrato."
+        }
+      ]
+    },
+    {
+      "id": "dados-2",
+      "tipo": "desafio",
+      "titulo": "Modele um card",
+      "texto": "Copie este baralho e mude o tipo de dados-0 para surpresa. Gere o JSON usando sua cópia como origem. Leia o erro, corrija o tipo e gere novamente.",
+      "exemplos": [
+        {
+          "rotulo": "COMANDO",
+          "conteudo": "python3 baralho.py gerar --origem sua-copia.md --saida teste.json"
+        },
+        {
+          "rotulo": "CHECAGEM",
+          "conteudo": "O erro indica cards[0].tipo. Após a correção, valide teste.json."
+        }
+      ]
+    },
+    {
+      "id": "dados-3",
+      "tipo": "boss",
+      "titulo": "Do Markdown ao JSON",
+      "texto": "Abra um PR com uma alteração no primeiro baralho, o JSON regenerado e a saída da validação. Mostre que mudar o título preserva o id e que repetir um id ou deixar o texto de um card vazio é rejeitado.",
+      "exemplos": [
+        {
+          "rotulo": "ENTREGA",
+          "conteudo": "Markdown alterado, quatro cards em JSON e evidência da validação."
+        },
+        {
+          "rotulo": "ACEITE",
+          "conteudo": "O JSON é reproduzível, os ids continuam estáveis e entradas inválidas falham."
+        }
+      ]
+    }
+  ]
+}

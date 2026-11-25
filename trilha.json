@@ -1,0 +1,8 @@
+[
+  {"id":"dados","title":"Dados e contrato","stack":"SQL · S3 · JSON","icon":"database","cat":"analista","summary":"Transforme a origem dos cards em um contrato que Python e Angular possam usar.","outcome":"Versione os cards, gere o JSON e valide o contrato."},
+  {"id":"lambda","title":"Python na Lambda","stack":"Python · AWS Lambda","icon":"bolt","cat":"dorminhoco","summary":"Use Python para servir os cards e compare uma invocação HTTP com um evento do S3.","outcome":"Entregue uma função testada para listar e consultar cards."},
+  {"id":"gateway","title":"API Gateway","stack":"Rotas · HTTP · CORS","icon":"route","cat":"porteiro","summary":"Exponha a função via HTTP e teste o acesso a partir da origem do frontend.","outcome":"Entregue rotas acessíveis, exemplos de resposta e configuração de CORS."},
+  {"id":"angular","title":"Frontend Angular","stack":"TypeScript · RxJS","icon":"layers","cat":"desconfiado","summary":"Construa o feed que lê a API com componentes, formulários e estados de carregamento.","outcome":"Navegue pelo baralho e registre progresso pelo frontend."},
+  {"id":"ecs","title":"API em container","stack":"FastAPI · ECS Fargate","icon":"box","cat":"vigia","summary":"Rode o mesmo contrato HTTP com FastAPI em um serviço ECS e compare com Lambda.","outcome":"Execute o container e rode as mesmas verificações de contrato nos dois ambientes."},
+  {"id":"deploy","title":"Deploy do laboratório","stack":"S3 · CloudFront · IaC","icon":"flag","cat":"analista","summary":"Coloque o Angular no ar e codifique a infraestrutura para reproduzir o ambiente.","outcome":"Entregue a URL funcionando, a infraestrutura e um roteiro de verificação."}
+]
