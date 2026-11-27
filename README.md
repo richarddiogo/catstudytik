@@ -1,52 +1,63 @@
-# CatStudyTik
+# Beco 404
 
-Um laboratório para quem já trabalha com SQL, Python, Glue e S3 e quer aprender a construir uma aplicação web com Angular e AWS. O projeto da trilha é o próprio CatStudyTik.
+Jogo de navegador pra quem já trabalha com dados (SQL, Python, Glue, S3) e quer aprender a parte de aplicação: Lambda em Python, API Gateway e a base do Angular (TypeScript e RxJS).
 
-[Veja a tela inicial do mockup](preview.png) ou [a versão mobile](preview-mobile.png). Para navegar, abra [`mockup.html`](mockup.html) no navegador. O arquivo contém a interface, os seis baralhos e a pixel art gerada com ImageGen. Posição, conclusões e favoritos ficam no armazenamento local do navegador quando disponível.
+Você é a plantonista nova de um beco onde cada gato que chega na porta é uma requisição. Você escreve o código, aperta **Rodar** e vê quem entra e quem fica do lado de fora. O código é de verdade e roda no próprio navegador.
 
-## Fase 1 · Dados e contrato
+## Como jogar
 
-Nesta fase, o Markdown é a fonte e o JSON é o artefato que a futura API vai servir. O Python lê o [baralho em Markdown](cards/dados.md), aplica as regras do contrato e publica o [JSON versionado](data/dados.json). O mockup incorpora esse mesmo JSON no build.
-
-Com Python 3.8 ou superior, rode na raiz do repo:
+Precisa de internet (o Python, o TypeScript e o editor vêm de CDN). Na raiz do repo:
 
 ```sh
-python3 baralho.py gerar
-python3 baralho.py validar
-python3 build.py
-python3 -m unittest discover -s tests -v
+python3 -m http.server 8795
 ```
 
-O primeiro comando gera quatro cards e o segundo valida o arquivo em disco. O terceiro atualiza o HTML com o baralho gerado. Os testes conferem a reprodução do JSON, a correspondência com o mockup e a rejeição de entradas inválidas. O script usa apenas a biblioteca padrão.
+Abra <http://localhost:8795>. Também funciona publicado no GitHub Pages, porque é só HTML, CSS e JavaScript, sem build.
 
-### Contrato do baralho
+O progresso fica no `localStorage` do navegador.
 
-- A raiz do JSON tem `fase` e `cards`. O primeiro baralho usa `fase: "dados"`.
-- Há um card de cada tipo, em ordem de leitura: `ponte`, `armadilha`, `desafio` e `boss`.
-- Cada card tem `id`, `tipo`, `titulo`, `texto` e uma lista de `exemplos`, cada um com `rotulo` e `conteudo`.
-- Os IDs são explícitos no Markdown, únicos no baralho e começam com o slug da fase, como `dados-0`. Preserve o ID ao revisar o título ou o texto.
-- Campos ausentes, textos vazios, tipos fora da ordem e IDs repetidos fazem o comando sair com status 1. Uma geração reprovada preserva o JSON da última execução válida.
+## Os turnos
 
-No Markdown, cada card começa com `## id | tipo | título`, seguido do texto e de uma ou mais linhas `- RÓTULO | exemplo`.
+| Turno | Assunto | O que ela escreve | Fases |
+| --- | --- | --- | --- |
+| 1. O Dorminhoco | AWS Lambda em Python | `handler(event, context)` de verdade, no formato de evento 2.0 do HTTP API, rodando com Pyodide | 7 |
+| 2. O Porteiro | API Gateway | Tabela de rotas, CORS e authorizer em JSON, passada por um simulador | 4 |
+| 3. O Desconfiado | TypeScript e RxJS | Funções e Observables de verdade, com o RxJS oficial | 5 |
+| 4. A Vitrine | Angular (componentes, HttpClient) | em obra | |
+| 5. O Vigia | ECS Fargate | em obra | |
 
-### Exercício de 2 a 5 minutos
+O código inicial de cada fase já vem quase pronto, com os pontos a mexer marcados como `TODO`. Cada fase tem cinco partes:
 
-Faça uma cópia de `cards/dados.md` em `/tmp/catstudytik-dados.md` e troque o tipo do primeiro card de `ponte` para `surpresa`.
+- **Você já sabe / Aqui no beco:** a ponte entre uma coisa de dados e a coisa nova (`WHERE` vira query string, partição vira caminho, action do Spark vira `subscribe`).
+- **Cola:** a sintaxe que a fase pede. Fica recolhida; abrir não custa estrela.
+- **Visitantes:** os casos de teste. Cada um é um gato com um pedido e uma resposta esperada. Alguns são surpresa e só aparecem depois de rodar.
+- **Relatório do plantão:** aparece ao passar. Diz onde a comparação com dados quebra e como é na AWS de verdade.
+- **</> Por dentro:** raio-X da cena. Mostra as tags HTML do beco lidas da página, e o JavaScript que mexe nelas enquanto os gatos andam. Passar o mouse numa linha acende a tag na cena. Tem um **passo a passo** (a cena para a cada mudança e espera o clique em "Próximo passo") e um console onde ela digita JavaScript de verdade (`placa.textContent = "miau"`) e vê a tag mudar. Serve pra explicar o que é frontend antes do turno de Angular.
 
-```sh
-python3 baralho.py gerar --origem /tmp/catstudytik-dados.md --saida /tmp/catstudytik-dados.json
+Quando o código quebra, a linha errada fica vermelha no editor com um recado em português logo abaixo, já dizendo o conserto e, quando dá, mostrando a linha corrigida (faltou aspas, faltou vírgula, nome digitado errado, recuo). O recado some quando ela mexe no código. A mensagem original da máquina aparece em letra pequena no painel, pra ela ir se acostumando a ler.
+
+A velocidade dos gatos na cena é escolhida ao lado do botão Rodar: lenta, normal ou rápida.
+
+Estrelas: 3 com no máximo 1 dica e 5 tentativas, 2 se pediu a segunda dica ou passou de 5 tentativas, 1 se viu a solução. **Reiniciar** zera a fase pra tentar as 3 de novo.
+
+## Pra quem ensina
+
+- `?livre` na URL destranca todas as fases e mostra o botão **Ver solução**.
+- No console do navegador, `await BECO.testarTudo()` roda a solução de cada fase (tem que passar em tudo) e o código inicial (tem que falhar em alguma coisa).
+- O turno 2 é um simulador simplificado. Os nomes `cors.allowOrigins`, `allowMethods` e `allowHeaders` são os da AWS; o formato `{"lambda": "...", "auth": "jwt"}` é só do jogo.
+- O turno 3 roda o TypeScript sem conferir tipos (a fase 1 avisa disso).
+
+## Estrutura
+
+```
+index.html
+css/estilo.css
+js/runners.js        executa Python, o simulador de gateway e TypeScript
+js/cena.js           o beco e os gatos em pixel art, desenhados por código
+js/main.js           mapa, tela da fase, estrelas e progresso
+js/niveis/*.js       um arquivo por turno, com todas as fases
+assets/              retratos dos gatos de cada turno
+legado/              o painel de cards antigo (não é usado pelo jogo)
 ```
 
-A geração deve acusar `cards[0].tipo`. Corrija o tipo, altere o título mantendo o ID, gere de novo e rode `python3 baralho.py validar /tmp/catstudytik-dados.json`. Confira que só o título mudou no card. O **Boss** é abrir um PR com uma edição real no Markdown, o JSON regenerado e evidência de que IDs duplicados e campos ausentes são rejeitados.
-
-## Próximas fases no mockup
-
-| Fase | Ponte com engenharia de dados | Entrega de estudo |
-| --- | --- | --- |
-| Python na Lambda | Invocação por evento do S3 | Handler HTTP com lista, detalhe e testes |
-| API Gateway | Gatilhos e seleção de integração | Rotas, CORS e exemplos de chamada |
-| Frontend Angular | Schema do Glue Catalog e execução preguiçosa do Spark | Feed, serviço HTTP, navegação e formulário |
-| API em container | Glue job e execução finita | FastAPI em ECS Fargate e comparação com Lambda |
-| Deploy do laboratório | Publicação de artefatos no S3 | URL, configuração de CloudFront e infraestrutura como código |
-
-Os baralhos de prévia estão em [`cards/`](cards/) e a ordem das fases está em [`trilha.json`](trilha.json).
+Pra criar uma fase, copie um objeto dentro de `js/niveis/` e preencha `sabe`, `aqui`, `missao`, `inicial`, `solucao`, `dicas`, `visitantes` e `relatorio`. Depois rode `await BECO.testarTudo()`.
