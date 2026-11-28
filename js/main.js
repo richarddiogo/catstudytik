@@ -179,12 +179,33 @@
         marca = { linha, recado: cm.addLineWidget(linha, no, { coverGutter: false, noHScroll: true }) };
         cm.scrollIntoView({ line: i, ch: 0 }, 60);
       };
+      // depurador: a linha (ou o comando de várias linhas) que está rodando agora
+      let agora = [];
+      const desapontar = () => {
+        agora.forEach((h) => {
+          cm.removeLineClass(h, 'background', 'linha-agora');
+          cm.removeLineClass(h, 'background', 'linha-agora-erro');
+          cm.removeLineClass(h, 'gutter', 'calha-agora');
+        });
+        agora = [];
+      };
+      const apontar = (ini, fim, erro) => {
+        desapontar();
+        for (let n = ini; n <= (fim || ini); n++) {
+          if (n < 1 || n > cm.lineCount()) continue;
+          const h = cm.getLineHandle(n - 1);
+          cm.addLineClass(h, 'background', erro ? 'linha-agora-erro' : 'linha-agora');
+          cm.addLineClass(h, 'gutter', 'calha-agora');
+          agora.push(h);
+        }
+        cm.scrollIntoView({ line: Math.max(0, ini - 1), ch: 0 }, 50);
+      };
       cm.on('change', () => {
         desmarcar();
         guardarCodigo();
       });
       setTimeout(() => cm.refresh(), 0);
-      return { ler: () => cm.getValue(), escrever: (v) => cm.setValue(v), focar: () => cm.focus(), marcar, desmarcar };
+      return { ler: () => cm.getValue(), escrever: (v) => cm.setValue(v), focar: () => cm.focus(), marcar, desmarcar, apontar, desapontar, ajustar: () => cm.refresh() };
     }
     const ta = document.createElement('textarea');
     ta.className = 'editor-simples';
@@ -192,7 +213,7 @@
     ta.value = valor;
     ta.addEventListener('input', () => guardarCodigo());
     el.appendChild(ta);
-    return { ler: () => ta.value, escrever: (v) => (ta.value = v), focar: () => ta.focus(), marcar: () => {}, desmarcar: () => {} };
+    return { ler: () => ta.value, escrever: (v) => (ta.value = v), focar: () => ta.focus(), marcar: () => {}, desmarcar: () => {}, apontar: () => {}, desapontar: () => {}, ajustar: () => {} };
   }
 
   let relogio = null;
@@ -211,6 +232,7 @@
     dados(atual.nivel.id).codigo = atual.editor.ler();
     salvar();
     atual.cena.limpar();
+    soltarLinha();
     cancelAnimationFrame(atual.cena.raf);
     atual = null;
   }
@@ -236,7 +258,7 @@
       '<button class="btn btn-fantasma oculto" id="solucao">Ver solução</button>' +
       '<label class="rapido" title="Velocidade dos gatos na cena">velocidade <select id="velocidade"><option value="lento">lenta</option><option value="normal">normal</option><option value="rapido">rápida</option></select></label>' +
       '<button class="btn btn-rodar" id="rodar">▶ Rodar <kbd>Ctrl</kbd>+<kbd>Enter</kbd></button></div>' +
-      '<div id="editor"></div></section></div>';
+      '<div id="editor"></div>' + (nivel.tipo === 'python' ? htmlDepurador() : '') + '</section></div>';
 
     atual = { mi, ni, mundo, nivel, resultados: null, mostrados: 0, revelado: false, rodando: false, aba: 'missao', aberto: -1, erroGeral: null, logJs: [], htmlAntes: [] };
     atual.cena = new B.Cena($('#cena'), $('#sobre'));
@@ -253,6 +275,7 @@
     };
     atual.cena.definirMundo(mundo.mascote);
     atual.editor = criarEditor($('#editor'), mundo, d.codigo !== undefined ? d.codigo : nivel.inicial);
+    ligarDepurador();
 
     $('#voltar').addEventListener('click', mostrarMapa);
     $('#rodar').addEventListener('click', rodar);
@@ -438,6 +461,270 @@
     atualizarDentro();
   }
 
+  /* ---------- depurador (só nas fases de Python) ----------
+     Enquanto o gato espera na porta, a cena anda pelo código linha por linha e mostra
+     o que entrou (event e context), o que está rodando e o que saiu. */
+  let pararNaLinha = false; // "parar em cada linha": só anda quando ela clica
+  let seguirLinha = null;
+
+  const NOTAS_EVENT = {
+    version: 'formato do evento (HTTP API usa o 2.0)',
+    routeKey: 'a rota do gateway que casou',
+    rawPath: 'o caminho que o gato pediu',
+    rawQueryString: 'o que veio depois do ?, ainda como texto',
+    queryStringParameters: 'o mesmo, já separado em dict',
+    pathParameters: 'os pedaços {entre chaves} da rota',
+    headers: 'cabeçalhos do pedido',
+    requestContext: 'dados que o gateway acrescenta',
+    'requestContext.http.method': 'GET, POST, DELETE…',
+    body: 'o corpo: chega sempre como texto',
+    isBase64Encoded: 'true só quando o corpo é arquivo binário',
+  };
+  const AUSENTES = {
+    queryStringParameters: 'este pedido veio sem nada depois do ?',
+    pathParameters: 'a rota deste pedido não tem {pedaço}',
+    body: 'este pedido veio sem corpo',
+  };
+
+  function htmlDepurador() {
+    return (
+      '<div class="depurador" id="depurador"><div class="dep-barra"><button class="dep-dobra" id="dep-dobra" title="Recolher ou abrir o depurador">▾</button>' +
+      '<span class="rotulo">DEPURADOR</span><span class="dep-quem" id="dep-quem"></span><span class="espaco"></span>' +
+      '<label class="passo-liga" title="A cena para em cada linha e só continua quando você clica"><input type="checkbox" id="dep-parar"> parar em cada linha</label>' +
+      '<button class="btn btn-passo" id="dep-prox" disabled>Próxima linha ▶</button></div>' +
+      '<div class="dep-cols"><div class="dep-col"><div class="rotulo">1 · ENTROU</div><div class="dep-corpo" id="dep-entrou"></div></div>' +
+      '<div class="dep-col"><div class="rotulo">2 · RODANDO</div><div class="dep-corpo" id="dep-agora"></div></div>' +
+      '<div class="dep-col"><div class="rotulo">3 · SAIU</div><div class="dep-corpo" id="dep-saiu"></div></div></div></div>'
+    );
+  }
+
+  function dobrarDepurador() {
+    $('#depurador').classList.toggle('fechado', !!estado.depFechado);
+    $('#dep-dobra').textContent = estado.depFechado ? '▸' : '▾';
+    atual.editor.ajustar();
+  }
+
+  function ligarDepurador() {
+    if (!$('#depurador')) return;
+    $('#dep-parar').checked = pararNaLinha;
+    $('#dep-parar').addEventListener('change', (e) => {
+      pararNaLinha = e.target.checked;
+      if (!pararNaLinha) soltarLinha();
+    });
+    $('#dep-prox').addEventListener('click', soltarLinha);
+    $('#dep-dobra').addEventListener('click', () => {
+      estado.depFechado = !estado.depFechado;
+      salvar();
+      dobrarDepurador();
+    });
+    atual.dep = null;
+    atual.depVez = 0;
+    dobrarDepurador();
+    pintarDepurador();
+  }
+
+  function soltarLinha() {
+    const f = seguirLinha;
+    seguirLinha = null;
+    const b = $('#dep-prox');
+    if (b) {
+      b.disabled = true;
+      b.classList.remove('chamando');
+    }
+    if (f) f();
+  }
+  function esperarLinha() {
+    return new Promise((ok) => {
+      seguirLinha = ok;
+      const b = $('#dep-prox');
+      b.disabled = false;
+      b.classList.add('chamando');
+    });
+  }
+
+  function limparDepurador() {
+    soltarLinha();
+    atual.editor.desapontar();
+    if (!$('#depurador')) return;
+    atual.dep = null;
+    atual.depVez++;
+    pintarDepurador();
+  }
+
+  // Anda pelos passos gravados: acende a linha no editor e atualiza o painel.
+  async function depurar(dep, ritmo, vivo) {
+    if (!$('#depurador')) return;
+    atual.dep = dep;
+    dep.k = -1;
+    const n = dep.passos.length;
+    if (!n) return pintarDepurador();
+    // fase com muito passo anda mais ligeiro, pra um gato só não segurar a fila
+    const ms = Math.max(70, Math.min(430 * ritmo, (2800 * ritmo) / n));
+    for (let k = 0; k < n; k++) {
+      if (!vivo()) return;
+      dep.k = k;
+      const p = dep.passos[k];
+      atual.editor.apontar(p.n, p.ate, p.t === 'x');
+      pintarDepurador();
+      if (pararNaLinha) await esperarLinha();
+      else await new Promise((ok) => setTimeout(ok, k === n - 1 ? ms * 1.5 : ms));
+    }
+  }
+
+  // Depois da cena: mostra, parado, o que entrou e saiu pra um visitante.
+  function mostrarExec(i) {
+    if (!$('#depurador')) return;
+    const exec = atual.resultados[i].exec;
+    atual.dep = { i, passos: exec.rastro, k: exec.rastro.length - 1, parado: true };
+    pintarDepurador();
+  }
+
+  async function repassar(i) {
+    if (!atual || atual.rodando || !atual.resultados) return;
+    const sessao = atual;
+    soltarLinha();
+    const vez = ++atual.depVez;
+    const vivo = () => atual === sessao && atual.depVez === vez && !atual.rodando;
+    await depurar({ i, passos: atual.resultados[i].exec.rastro }, RITMOS[velocidade()], vivo);
+    if (!vivo()) return;
+    atual.editor.desapontar();
+    atual.dep.parado = true;
+    pintarDepurador();
+  }
+
+  // O event em JSON, linha por linha, com um comentário nas chaves que importam.
+  function linhasEvent(event, codigo) {
+    const semComentario = codigo.replace(/#.*$/gm, '');
+    // "lê" = colchete ou .get com a chave: event["body"], .get("body"). Um "body": dentro do return não conta.
+    const usa = (k) => new RegExp('(\\[|\\.get\\(\\s*)["\']' + k.replace(/[^\w-]/g, '\\$&') + '["\']').test(semComentario);
+    const saida = [];
+    const anda = (v, caminho, recuo, chave, ultimo) => {
+      const antes = ' '.repeat(recuo) + (chave !== null ? JSON.stringify(chave) + ': ' : '');
+      const virgula = ultimo ? '' : ',';
+      const item = { nota: NOTAS_EVENT[caminho], usa: chave !== null && usa(chave) };
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
+        const chaves = Object.keys(v);
+        saida.push(Object.assign(item, { t: antes + '{' }));
+        chaves.forEach((k, j) => anda(v[k], caminho ? caminho + '.' + k : k, recuo + 2, k, j === chaves.length - 1));
+        saida.push({ t: ' '.repeat(recuo) + '}' + virgula });
+      } else saida.push(Object.assign(item, { t: antes + JSON.stringify(v) + virgula }));
+    };
+    anda(event, '', 0, null, true);
+    // chave que o código procura e este pedido não trouxe: é daí que vem o KeyError
+    Object.keys(AUSENTES).forEach((k) => {
+      if (!(k in event) && usa(k)) saida.push({ t: '', nota: 'sem "' + k + '": ' + AUSENTES[k] + ', então a chave nem existe', falta: true });
+    });
+    return saida;
+  }
+
+  function htmlEntrou(dep) {
+    if (dep.carga) return '<p class="dep-vazio">Ninguém entrou ainda. É o <b>cold start</b>: a Lambda estava dormindo e o Python está lendo o arquivo pela primeira vez.</p>';
+    const exec = atual.resultados[dep.i].exec;
+    const codigo = atual.codigoRodado || '';
+    const linhas = linhasEvent(exec.event, codigo);
+    const usaContext = /\bcontext\s*\./.test(codigo.replace(/#.*$/gm, ''));
+    let h = '<div class="dep-mini"><code>event</code> é o pedido do gato, montado pelo API Gateway</div><div class="codigo">';
+    h += linhas.map((l) => '<div class="linha' + (l.usa ? ' usa' : '') + (l.falta ? ' falta' : '') + '">' + esc(l.t) + (l.nota ? (l.t ? '  ' : '') + '<span class="h-com"># ' + esc(l.nota) + '</span>' : '') + '</div>').join('');
+    h += '</div>';
+    if (linhas.some((l) => l.usa)) h += '<div class="dep-legenda"><span class="dep-amostra"></span> chaves que o seu código lê</div>';
+    h += '<div class="dep-mini"><code>context</code> são dados da execução, não do pedido' + (usaContext ? '' : ' (seu código não usa, e em API quase ninguém usa)') + '</div><div class="codigo">';
+    const ctx = exec.context || {};
+    h += Object.keys(ctx).map((k) => '<div class="linha">context.' + esc(k) + (k.endsWith('()') ? '  → ' : ' = ') + esc(JSON.stringify(ctx[k])) + '</div>').join('');
+    return h + '</div>';
+  }
+
+  function htmlAgora(dep) {
+    const p = dep.passos[dep.k];
+    if (!p) return '<p class="dep-vazio">…</p>';
+    const fonte = (atual.codigoRodado || '').split('\n');
+    const trecho = (fonte[p.n - 1] || '').trim();
+    let titulo;
+    let texto = '';
+    if (dep.carga) {
+      titulo = 'Cold start · linha ' + p.n;
+      texto = 'Antes do primeiro pedido o Python lê o arquivo inteiro, de cima pra baixo, uma vez só. Cria as variáveis de fora e as funções. O handler ainda não rodou.';
+    } else if (p.t === 'c') {
+      titulo = p.f === 'handler' ? 'A Lambda chamou handler(event, context)' : 'Entrou em ' + p.f + '()';
+      texto = p.f === 'handler' ? 'Os dois chegam prontos: quem monta é a AWS, não você.' : 'Os valores passados viram as variáveis daqui de dentro.';
+    } else if (p.t === 'l') {
+      titulo = 'Linha ' + p.n + (p.f !== 'handler' ? ' · dentro de ' + p.f + '()' : '');
+    } else if (p.t === 'x') {
+      titulo = 'Linha ' + p.n + ' deu ' + p.e;
+      texto = dep.passos[dep.k + 1] ? 'Tem um except esperando esse erro: o código pula pra lá.' : 'Ninguém tratou esse erro. O handler para aqui, sem devolver nada.';
+    } else {
+      titulo = p.f === 'handler' ? 'O handler terminou' : p.f + '() devolveu';
+      texto = p.f === 'handler' ? 'O que ele devolveu está na coluna 3.' : '';
+    }
+    let h = '<div class="dep-titulo' + (p.t === 'x' ? ' erro' : '') + '">' + esc(titulo) + '</div>';
+    if (trecho && p.t !== 'c') h += '<pre class="dep-trecho">' + esc(trecho) + (p.ate > p.n ? '  …' : '') + '</pre>';
+    if (texto) h += '<p class="dep-texto">' + esc(texto) + '</p>';
+    if (p.t === 'r' && p.f !== 'handler') h += '<pre class="dep-trecho">' + esc(p.r) + '</pre>';
+    if (!dep.carga) {
+      const antes = {};
+      const ant = dep.passos[dep.k - 1];
+      if (ant && ant.f === p.f) ant.v.forEach((x) => (antes[x[0]] = x[1]));
+      h += '<div class="dep-mini">variáveis' + (p.f !== 'handler' ? ' de ' + esc(p.f) + '()' : '') + '</div>';
+      h += p.v.length
+        ? p.v.map((x) => '<div class="dep-var' + (ant && ant.f === p.f && antes[x[0]] !== x[1] ? ' mudou' : '') + '"><b>' + esc(x[0]) + '</b> = ' + esc(x[1]) + '</div>').join('')
+        : '<div class="dep-var vazio">nenhuma criada ainda (event e context estão na coluna 1)</div>';
+    }
+    return h + '<div class="dep-conta">passo ' + (dep.k + 1) + ' de ' + dep.passos.length + '</div>';
+  }
+
+  function htmlSaiu(dep) {
+    if (dep.carga) return '<p class="dep-vazio">Ainda não tem pedido, então não tem resposta. Isto acontece uma vez, antes do primeiro gato.</p>';
+    if (dep.k < dep.passos.length - 1) return '<p class="dep-vazio">O handler ainda está rodando…</p>';
+    const res = atual.resultados[dep.i];
+    const exec = res.exec;
+    let h = '';
+    if (!exec.temRetorno) {
+      h += '<div class="dep-mini">o handler quebrou' + (res.erro && res.erro.linha ? ' na linha ' + res.erro.linha : '') + ' e não devolveu nada</div>';
+      h += '<div class="dep-mini">o gateway entrega pro gato</div><div class="dep-http falha">HTTP 500</div><pre class="dep-trecho">{"message": "Internal Server Error"}</pre>';
+      return h + '<p class="dep-texto">O gato nunca vê o seu erro. Quem vê é você, no log.</p>';
+    }
+    h += '<div class="dep-mini">o <code>return</code> do handler</div><pre class="dep-trecho">' + (exec.retorno === null ? 'None' : esc(JSON.stringify(exec.retorno, null, 2))) + '</pre>';
+    if (exec.retorno === null) h += '<p class="dep-texto">None é o que o Python devolve quando a função acaba sem <code>return</code>.</p>';
+    const r = res.resposta;
+    h += '<div class="dep-mini">o gateway entrega pro gato</div><div class="dep-http ' + (res.ok ? 'ok' : 'falha') + '">HTTP ' + esc(String(r.status)) + '</div>';
+    h += '<pre class="dep-trecho">' + (r.body === undefined || r.body === null ? '(corpo vazio)' : esc(typeof r.body === 'string' ? r.body : JSON.stringify(r.body))) + '</pre>';
+    if (r.inferido) h += '<p class="dep-texto">Sem <code>statusCode</code> no retorno, o gateway assume 200 e manda o retorno inteiro como corpo.</p>';
+    if (r.problema) h += '<p class="dep-texto">' + esc(r.problema) + '</p>';
+    return h + '<div class="dep-veredito ' + (res.ok ? 'ok' : 'falha') + '">' + (res.ok ? '✓ era o que o gato esperava' : '✗ não era o esperado (o motivo está na aba Visitantes)') + '</div>';
+  }
+
+  function pintarDepurador() {
+    if (!$('#depurador')) return;
+    const dep = atual.dep;
+    if (!dep) {
+      $('#dep-quem').textContent = 'aperte Rodar';
+      $('#dep-entrou').innerHTML = '<p class="dep-vazio">Cada gato chega com dois pacotes: <code>event</code> (o pedido dele) e <code>context</code> (dados da execução). Os dois aparecem aqui, do jeito que a Lambda recebe.</p>';
+      $('#dep-agora').innerHTML = '<p class="dep-vazio">A linha que está rodando acende no editor. Aqui ficam as variáveis, com o valor que têm naquele momento.</p>';
+      $('#dep-saiu').innerHTML = '<p class="dep-vazio">O que o <code>return</code> devolveu e o que o gateway entrega pro gato.</p>';
+      atual.depEntrou = null;
+      return;
+    }
+    const vis = dep.carga ? null : atual.nivel.visitantes[dep.i];
+    $('#dep-quem').innerHTML = dep.carga
+      ? 'cold start · antes do primeiro gato'
+      : 'gato ' + (dep.i + 1) + ' de ' + atual.nivel.visitantes.length + ' · <b>' + esc(vis.nome) + '</b> · <code>' + esc(vis.pedido) + '</code>' +
+        (dep.parado && !atual.rodando ? ' <button class="chip" id="dep-de-novo" type="button">↻ ver linha por linha</button>' : '');
+    const deNovo = $('#dep-de-novo');
+    if (deNovo) deNovo.addEventListener('click', () => repassar(dep.i));
+    // a coluna 1 só é refeita quando muda o gato, pra não perder a rolagem a cada linha
+    const chave = dep.carga ? 'carga' : dep.i;
+    if (atual.depEntrou !== chave) {
+      const caixa = $('#dep-entrou');
+      caixa.innerHTML = htmlEntrou(dep);
+      caixa.scrollTop = 0;
+      // já rola até a primeira chave que o código lê, que é o que interessa nesse pedido
+      const lida = $('.linha.usa, .linha.falta', caixa);
+      if (lida) caixa.scrollTop = Math.max(0, lida.getBoundingClientRect().top - caixa.getBoundingClientRect().top - 70);
+      atual.depEntrou = chave;
+    }
+    $('#dep-agora').innerHTML = htmlAgora(dep);
+    $('#dep-saiu').innerHTML = htmlSaiu(dep);
+  }
+
   function painelMissao() {
     const n = atual.nivel;
     const d = dados(n.id);
@@ -499,6 +786,7 @@
         const i = +el.dataset.i;
         atual.aberto = atual.aberto === i ? -1 : i;
         painelVisitantes();
+        if (atual.aberto === i && !atual.rodando && atual.resultados && atual.resultados[i] && atual.resultados[i].exec) mostrarExec(i);
       })
     );
   }
@@ -530,6 +818,7 @@
     atual.editor.desmarcar();
     atual.mostrados = 0;
     atual.cena.limpar();
+    limparDepurador();
     atualizarBarra();
     trocarAba('missao');
   }
@@ -561,6 +850,8 @@
     atual.mostrados = 0;
     atual.aberto = -1;
     atual.cena.limpar();
+    limparDepurador();
+    atual.codigoRodado = codigo;
     atual.carregando = nivel.tipo === 'python' ? 'Acordando o Python… (na primeira vez demora uns segundos, igual cold start)' : nivel.tipo === 'ts' ? 'Preparando o TypeScript…' : null;
     atual.logJs = [];
     if (atual.aba !== 'dentro') trocarAba('visitantes');
@@ -595,8 +886,13 @@
         pedido: v.pedido,
         entra: nivel.tipo === 'python' ? v.espera.status < 400 : nivel.tipo === 'gateway' ? !!v.espera.destino : true,
       }));
+      const depura = nivel.tipo === 'python';
+      const ritmo = RITMOS[velocidade()];
+      const ainda = (vivo) => () => vivo() && atual === sessao && atual.resultados === r.resultados;
       await atual.cena.tocar(fila, r.resultados, {
-        ritmo: RITMOS[velocidade()],
+        ritmo,
+        aoAcordar: depura ? (vivo) => depurar({ i: -1, carga: true, passos: r.rastroCarga || [] }, ritmo, ainda(vivo)) : null,
+        aoExecutar: depura ? (i, vivo) => depurar({ i, passos: r.resultados[i].exec.rastro }, ritmo, ainda(vivo)) : null,
         aoResolver: (i) => {
           if (atual !== sessao) return;
           atual.mostrados = i + 1;
@@ -605,14 +901,23 @@
         },
       });
       if (atual !== sessao) return;
+      if (atual.resultados !== r.resultados) {
+        // ela apertou Reiniciar no meio da cena: esta rodada não vale mais
+        atual.rodando = false;
+        $('#rodar').disabled = false;
+        return;
+      }
+      atual.editor.desapontar();
       atual.mostrados = r.resultados.length;
       const primeiraFalha = r.resultados.findIndex((x) => !x.ok);
       atual.aberto = primeiraFalha;
+      if (depura) mostrarExec(primeiraFalha < 0 ? r.resultados.length - 1 : primeiraFalha);
       if (primeiraFalha < 0) vitoria();
     }
     atual.rodando = false;
     $('#rodar').disabled = false;
     if (atual.aba === 'visitantes') painelVisitantes();
+    pintarDepurador(); // agora que a cena acabou, aparece o botão de rever um gato linha por linha
     atualizarBarra();
   }
 

@@ -164,7 +164,7 @@
   // ---------- Python (Lambda) ----------
   let pyPronto = null;
   const PY_APOIO = `
-import json, sys, io, traceback
+import json, sys, io, traceback, ast
 
 def __beco_erro():
     tipo, exc, tb = sys.exc_info()
@@ -178,41 +178,133 @@ def __beco_erro():
     return f"{tipo.__name__}: {exc}{onde}"
 
 __beco_ns = None
+__beco_pedidos = 0
+__beco_mapa = {}  # linha -> (primeira, última) linha do comando a que ela pertence
+
+class LambdaContext:
+    """Imitação do context que a AWS entrega: dados da execução, não do pedido."""
+    def __init__(self, n):
+        self.function_name = "beco-404"
+        self.function_version = "$LATEST"
+        self.memory_limit_in_mb = 128
+        self.aws_request_id = f"3f1c9a2e-0000-4000-8000-{n:012d}"
+        self.invoked_function_arn = "arn:aws:lambda:sa-east-1:123456789012:function:beco-404"
+        self.log_group_name = "/aws/lambda/beco-404"
+    def get_remaining_time_in_millis(self):
+        return 2990
+    def __repr__(self):
+        return "<LambdaContext beco-404>"
+
+def __beco_curto(v, limite=90):
+    try:
+        t = repr(v)
+    except BaseException:
+        t = "<" + type(v).__name__ + ">"
+    return t if len(t) <= limite else t[:limite - 1] + "…"
+
+def __beco_rastrear(passos, esconder=()):
+    """Devolve a função de rastreio: grava cada linha do arquivo dela, como um depurador."""
+    estado = {"quebrando": False}
+    def locais(quadro):
+        if quadro.f_code.co_name == "<module>":
+            return []
+        fora = []
+        for nome, valor in quadro.f_locals.items():
+            if nome.startswith("__") or any(valor is e for e in esconder):
+                continue
+            fora.append([nome, __beco_curto(valor)])
+        return fora
+    def rastro(quadro, tipo, arg):
+        if quadro.f_code.co_filename != "lambda_function.py":
+            return None
+        # expressões internas (x for x in ..., lambda) não viram passo: só confundem
+        if quadro.f_code.co_name.startswith("<") and quadro.f_code.co_name != "<module>":
+            return None
+        if len(passos) >= 400:
+            return rastro
+        f = quadro.f_code.co_name
+        n, ate = __beco_mapa.get(quadro.f_lineno, (quadro.f_lineno, quadro.f_lineno))
+        if tipo == "call":
+            if f != "<module>":
+                passos.append({"t": "c", "n": quadro.f_lineno, "ate": quadro.f_lineno, "f": f, "v": locais(quadro)})
+        elif tipo == "line":
+            estado["quebrando"] = False
+            p = {"t": "l", "n": n, "ate": ate, "f": f, "v": locais(quadro)}
+            if passos and passos[-1]["t"] == "l" and passos[-1]["n"] == n and passos[-1]["f"] == f:
+                passos[-1] = p
+            else:
+                passos.append(p)
+        elif tipo == "exception":
+            if not estado["quebrando"]:
+                estado["quebrando"] = True
+                passos.append({"t": "x", "n": n, "ate": ate, "f": f, "v": locais(quadro), "e": arg[0].__name__})
+        elif tipo == "return":
+            if not estado["quebrando"] and f != "<module>":
+                passos.append({"t": "r", "n": n, "ate": ate, "f": f, "v": locais(quadro), "r": __beco_curto(arg, 160)})
+        return rastro
+    return rastro
 
 def __beco_carregar(codigo):
-    global __beco_ns
+    global __beco_ns, __beco_pedidos
     __beco_ns = None
+    __beco_pedidos = 0
     ns = {"__name__": "lambda_function"}
+    passos = []
     antigo = sys.stdout
     sys.stdout = io.StringIO()
     try:
-        exec(compile(codigo, "lambda_function.py", "exec"), ns)
+        programa = compile(codigo, "lambda_function.py", "exec")
+        # um comando que ocupa várias linhas (um dict aberto, por exemplo) conta como um passo só
+        __beco_mapa.clear()
+        for no in ast.walk(ast.parse(codigo)):
+            if isinstance(no, ast.stmt) and not hasattr(no, "body"):
+                for k in range(no.lineno, no.end_lineno + 1):
+                    __beco_mapa[k] = (no.lineno, no.end_lineno)
+        sys.settrace(__beco_rastrear(passos))
+        try:
+            exec(programa, ns)
+        finally:
+            sys.settrace(None)
     except BaseException:
         sys.stdout = antigo
-        return __beco_erro()
+        return json.dumps({"erro": __beco_erro()})
     sys.stdout = antigo
     if not callable(ns.get("handler")):
-        return "Não achei a função handler(event, context) no seu código."
+        return json.dumps({"erro": "Não achei a função handler(event, context) no seu código."})
     __beco_ns = ns
-    return ""
+    return json.dumps({"erro": "", "rastro": passos})
 
 def __beco_invocar(event_json):
+    global __beco_pedidos
     ns = __beco_ns
     event = json.loads(event_json)
+    __beco_pedidos += 1
+    context = LambdaContext(__beco_pedidos)
+    ctx = {
+        "function_name": context.function_name,
+        "memory_limit_in_mb": context.memory_limit_in_mb,
+        "aws_request_id": context.aws_request_id,
+        "get_remaining_time_in_millis()": context.get_remaining_time_in_millis(),
+    }
+    passos = []
     buf = io.StringIO()
     antigo = sys.stdout
     sys.stdout = buf
     try:
-        retorno = ns["handler"](event, None)
+        sys.settrace(__beco_rastrear(passos, (event, context)))
+        try:
+            retorno = ns["handler"](event, context)
+        finally:
+            sys.settrace(None)
         sys.stdout = antigo
         try:
-            return json.dumps({"ok": True, "retorno": retorno, "saida": buf.getvalue()})
+            return json.dumps({"ok": True, "retorno": retorno, "saida": buf.getvalue(), "rastro": passos, "context": ctx})
         except TypeError as e:
-            return json.dumps({"ok": False, "saida": buf.getvalue(),
+            return json.dumps({"ok": False, "saida": buf.getvalue(), "rastro": passos, "context": ctx,
                 "erro": f"O retorno do handler não vira JSON ({e}). Lambda só devolve dict, lista, texto e número."})
     except BaseException:
         sys.stdout = antigo
-        return json.dumps({"ok": False, "erro": __beco_erro(), "saida": buf.getvalue()})
+        return json.dumps({"ok": False, "erro": __beco_erro(), "saida": buf.getvalue(), "rastro": passos, "context": ctx})
 `;
 
   function carregarPython() {
@@ -280,23 +372,27 @@ def __beco_invocar(event_json):
     const py = await carregarPython();
     const carregar = py.globals.get('__beco_carregar');
     const invocar = py.globals.get('__beco_invocar');
-    const erro = carregar(codigo);
-    if (erro) {
-      const info = diagnosticar(erro, codigo);
+    const carga = JSON.parse(carregar(codigo));
+    if (carga.erro) {
+      const info = diagnosticar(carga.erro, codigo);
       return { erroGeral: textoErro(info), erroInfo: info, resultados: [] };
     }
 
     const resultados = nivel.visitantes.map((v) => {
       const bruto = JSON.parse(invocar(JSON.stringify(v.event)));
+      // o que entrou, por onde o código passou e o que saiu: é isso que o depurador da tela mostra
+      const exec = { event: v.event, context: bruto.context, rastro: bruto.rastro || [] };
       if (!bruto.ok) {
         const info = diagnosticar(bruto.erro, codigo);
-        return { ok: false, rotulo: '500', saida: bruto.saida, erro: info, detalhe: 'Seu código quebrou, e pra quem está na porta isso é um 500.\n  ' + textoErro(info) };
+        return { ok: false, rotulo: '500', saida: bruto.saida, erro: info, exec, detalhe: 'Seu código quebrou, e pra quem está na porta isso é um 500.\n  ' + textoErro(info) };
       }
       const resp = interpretarResposta(bruto.retorno);
       const falha = conferirHttp(resp, v.espera);
-      return { ok: !falha, rotulo: String(resp.status), saida: bruto.saida, detalhe: falha, resposta: resp };
+      exec.retorno = bruto.retorno;
+      exec.temRetorno = true;
+      return { ok: !falha, rotulo: String(resp.status), saida: bruto.saida, detalhe: falha, resposta: resp, exec };
     });
-    return { resultados };
+    return { resultados, rastroCarga: carga.rastro || [] };
   }
 
   // ---------- API Gateway (simulador de HTTP API) ----------

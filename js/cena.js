@@ -404,7 +404,8 @@
     return !!this._seguir;
   };
 
-  /* Toca a fila de visitantes. aoResolver(i) é chamado quando o gato i recebe a resposta. */
+  /* Toca a fila de visitantes. aoResolver(i) é chamado quando o gato i recebe a resposta.
+     aoAcordar(vivo) e aoExecutar(i, vivo) são opcionais e a cena espera eles terminarem. */
   Cena.prototype.tocar = async function (visitantes, resultados, opcoes) {
     this.limpar();
     const rodada = this.rodada;
@@ -433,10 +434,16 @@
         this.balaoPorta.textContent = 'cold start…';
         this.balaoPorta.className = 'balao balao-porta espera';
         this.diz('balaoPorta.className = "balao balao-porta espera"', 'a classe "espera" é o que deixa o balão amarelo (CSS)');
+        // quem chamou pode mostrar o que acontece na partida a frio (o arquivo sendo lido)
+        if (opcoes.aoAcordar) await opcoes.aoAcordar(vivo);
+        if (!vivo()) return;
         if (!(await this.esperar(520 * v, rodada))) return;
         if (!(await this.ponto(rodada))) return;
         this.acordado = true;
       }
+      // o código roda agora: quem chamou pode andar linha por linha antes da resposta aparecer
+      if (opcoes.aoExecutar) await opcoes.aoExecutar(i, vivo);
+      if (!vivo()) return;
       if (!(await this.esperar(280 * v, rodada))) return;
       this.lampada = res.ok ? 'ok' : 'falha';
       this.balaoPorta.textContent = res.rotulo;

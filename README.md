@@ -36,6 +36,8 @@ O código inicial de cada fase já vem quase pronto, com os pontos a mexer marca
 
 Quando o código quebra, a linha errada fica vermelha no editor com um recado em português logo abaixo, já dizendo o conserto e, quando dá, mostrando a linha corrigida (faltou aspas, faltou vírgula, nome digitado errado, recuo). O recado some quando ela mexe no código. A mensagem original da máquina aparece em letra pequena no painel, pra ela ir se acostumando a ler.
 
+Nas fases de Python tem um **depurador** embaixo do editor. Enquanto o gato espera na porta, a linha que está rodando acende no editor, uma de cada vez, e o painel mostra três coisas: o que **entrou** (o `event` inteiro em JSON, com um comentário em cada chave e destaque nas que o código lê, mais o `context`), o que está **rodando** (a linha e as variáveis com o valor daquele momento) e o que **saiu** (o `return` do handler e o que o gateway entrega pro gato). No primeiro gato ele mostra também o cold start: o arquivo sendo lido de cima a baixo antes do handler ser chamado. Marcando "parar em cada linha" a cena só anda no clique. Depois da cena, clicar num visitante mostra a execução dele, com um botão pra rever linha por linha.
+
 A velocidade dos gatos na cena é escolhida ao lado do botão Rodar: lenta, normal ou rápida.
 
 Estrelas: 3 com no máximo 1 dica e 5 tentativas, 2 se pediu a segunda dica ou passou de 5 tentativas, 1 se viu a solução. **Reiniciar** zera a fase pra tentar as 3 de novo.
@@ -46,6 +48,7 @@ Estrelas: 3 com no máximo 1 dica e 5 tentativas, 2 se pediu a segunda dica ou p
 - No console do navegador, `await BECO.testarTudo()` roda a solução de cada fase (tem que passar em tudo) e o código inicial (tem que falhar em alguma coisa).
 - O turno 2 é um simulador simplificado. Os nomes `cors.allowOrigins`, `allowMethods` e `allowHeaders` são os da AWS; o formato `{"lambda": "...", "auth": "jwt"}` é só do jogo.
 - O turno 3 roda o TypeScript sem conferir tipos (a fase 1 avisa disso).
+- O depurador só existe no turno 1. O `context` é uma imitação com os campos mais comuns (`function_name`, `memory_limit_in_mb`, `aws_request_id`, `get_remaining_time_in_millis()`).
 
 ## Estrutura
 
